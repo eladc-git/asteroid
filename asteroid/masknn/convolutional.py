@@ -65,9 +65,11 @@ class Conv1DBlock(nn.Module):
         dilation,
         norm_type="gLN",
         causal=False,
+        time_samples=None,
     ):
         super(Conv1DBlock, self).__init__()
         self.skip_out_chan = skip_out_chan
+        input_shape = (1,hid_chan,time_samples) if time_samples else None
         conv_norm = norms.get(norm_type)
         in_conv1d = nn.Conv1d(in_chan, hid_chan, 1)
         depth_conv1d = nn.Conv1d(
@@ -78,10 +80,10 @@ class Conv1DBlock(nn.Module):
         self.shared_block = nn.Sequential(
             in_conv1d,
             nn.PReLU(),
-            conv_norm(hid_chan),
+            conv_norm(hid_chan,input_shape),
             depth_conv1d,
             nn.PReLU(),
-            conv_norm(hid_chan),
+            conv_norm(hid_chan,input_shape),
         )
         self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
         if skip_out_chan:
@@ -141,6 +143,7 @@ class TDConvNet(nn.Module):
         norm_type="gLN",
         mask_act="relu",
         causal=False,
+        time_samples=None,
     ):
         super(TDConvNet, self).__init__()
         self.in_chan = in_chan
@@ -156,12 +159,15 @@ class TDConvNet(nn.Module):
         self.norm_type = norm_type
         self.mask_act = mask_act
         self.causal = causal
+        self.time_samples = time_samples
 
-        layer_norm = norms.get(norm_type)(in_chan)
+        norm_input_shape = (1,512,time_samples) if time_samples else None
+        layer_norm = norms.get(norm_type)(in_chan, norm_input_shape)
         bottleneck_conv = nn.Conv1d(in_chan, bn_chan, 1)
         self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
         # Succession of Conv1DBlock with exponentially increasing dilation.
         self.TCN = nn.ModuleList()
+
         for r in range(n_repeats):
             for x in range(n_blocks):
                 if not causal:
@@ -178,6 +184,7 @@ class TDConvNet(nn.Module):
                         dilation=2**x,
                         norm_type=norm_type,
                         causal=causal,
+                        time_samples=time_samples,
                     )
                 )
         mask_conv_inp = skip_chan if skip_chan else bn_chan
@@ -202,7 +209,8 @@ class TDConvNet(nn.Module):
         """
         batch, _, n_frames = mixture_w.size()
         output = self.bottleneck(mixture_w)
-        skip_connection = torch.tensor([0.0], device=output.device)
+        input_shape = (1,self.skip_chan,self.time_samples) if self.time_samples else output.shape
+        skip_connection = torch.zeros(size=input_shape).to(output.device)
         for layer in self.TCN:
             # Common to w. skip and w.o skip architectures
             tcn_out = layer(output)

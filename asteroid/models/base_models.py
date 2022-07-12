@@ -200,7 +200,7 @@ class BaseEncoderMaskerDecoder(BaseModel):
         self.encoder_activation = encoder_activation
         self.enc_activation = activations.get(encoder_activation or "linear")()
 
-    def forward(self, wav):
+    def forward_origin(self, wav):
         """Enc/Mask/Dec model forward
 
         Args:
@@ -222,6 +222,22 @@ class BaseEncoderMaskerDecoder(BaseModel):
 
         reconstructed = pad_x_to_y(decoded, wav)
         return _shape_reconstructed(reconstructed, shape)
+
+    def forward(self, wav):
+        """Enc/Mask/Dec model forward
+
+        Args:
+            wav (torch.Tensor): waveform tensor. 1D, 2D or 3D tensor, time last.
+
+        Returns:
+            torch.Tensor, of shape (batch, n_src, time) or (n_src, time).
+        """
+        # Real forward
+        tf_rep = self.forward_encoder(wav)
+        est_masks = self.forward_masker(tf_rep)
+        masked_tf_rep = self.apply_masks(tf_rep, est_masks)
+        decoded = self.forward_decoder(masked_tf_rep)
+        return decoded
 
     def forward_encoder(self, wav: torch.Tensor) -> torch.Tensor:
         """Computes time-frequency representation of `wav`.

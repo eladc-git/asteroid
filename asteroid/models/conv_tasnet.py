@@ -66,14 +66,21 @@ class ConvTasNet(BaseEncoderMaskerDecoder):
         stride=8,
         encoder_activation=None,
         sample_rate=8000,
+        frame_size=None,
         **fb_kwargs,
     ):
+
+        time_samples = None
+        if frame_size is not None:
+            time_samples = (frame_size - kernel_size) // stride + 1
+
         encoder, decoder = make_enc_dec(
             fb_name,
             kernel_size=kernel_size,
             n_filters=n_filters,
             stride=stride,
             sample_rate=sample_rate,
+            time_samples=time_samples,
             **fb_kwargs,
         )
         n_feats = encoder.n_feats_out
@@ -105,6 +112,7 @@ class ConvTasNet(BaseEncoderMaskerDecoder):
             norm_type=norm_type,
             mask_act=mask_act,
             causal=causal,
+            time_samples=time_samples,
         )
         super().__init__(encoder, masker, decoder, encoder_activation=encoder_activation)
 
