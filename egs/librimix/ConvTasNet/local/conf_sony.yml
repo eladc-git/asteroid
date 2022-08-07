@@ -12,13 +12,13 @@ masknet:
   hid_chan: 512
 # Training config
 training:
-  epochs: 20
+  epochs: 30
   batch_size: 6
   num_workers: 4
   half_lr: true
   early_stop: true
   pretrained: /data/projects/swat/users/eladco/models/audio/ConvTasNet/ConvTasNet_Libri1Mix_enhsingle_16k.pth
-  wandb: True
+  wandb: False
   qat: True
 # Optim config
 optim:

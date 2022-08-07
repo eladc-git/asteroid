@@ -78,7 +78,7 @@ def main(conf):
     if pretrained != "":
         model = get_asteroid_pytorch_model(model, pretrained)
     if qat:
-        model.fuse_model()
+        model.quantize_model()
         model.to(DEVICE)
     # -------------------------------
 
@@ -157,6 +157,7 @@ def main(conf):
     state_dict = torch.load(checkpoint.best_model_path)
     system.load_state_dict(state_dict=state_dict["state_dict"])
     system.cpu()
+
     torch.save(system.model, os.path.join(exp_dir, "best_model.pth"))
 
 
