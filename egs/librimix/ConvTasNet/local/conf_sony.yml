@@ -1,0 +1,35 @@
+# filterbank config
+filterbank:
+  n_filters: 512
+  kernel_size: 32
+  stride: 16
+# Network config
+masknet:
+  n_blocks: 8
+  n_repeats: 3
+  mask_act: relu
+  bn_chan: 128
+  hid_chan: 512
+# Training config
+training:
+  epochs: 20
+  batch_size: 6
+  num_workers: 4
+  half_lr: true
+  early_stop: true
+  pretrained: /data/projects/swat/users/eladco/models/audio/ConvTasNet/ConvTasNet_Libri1Mix_enhsingle_16k.pth
+  wandb: True
+  qat: True
+# Optim config
+optim:
+  optimizer: adam
+  lr: 0.001
+  weight_decay: 0.0
+# Data config
+data:
+  task: enh_single
+  train_dir: data/wav16k/min/train-360
+  valid_dir: data/wav16k/min/dev
+  sample_rate: 16000
+  n_src: 1
+  segment: 3
