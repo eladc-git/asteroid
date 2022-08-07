@@ -33,7 +33,8 @@ def get_asteroid_pytorch_model(model, weights_path):
 # will limit the number of available GPUs for train.py .
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
-PROJECT_NAME = "Audio-Training"
+#PROJECT_NAME = "ConvTasNet_enh"
+PROJECT_NAME = "ConvTasNet_sep2"
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main(conf):
@@ -74,8 +75,8 @@ def main(conf):
     # ------ QAT model --------------
     pretrained = conf["training"]["pretrained"]
     qat = conf["training"]["qat"]
-    model = ConvTasNetQ(n_src=conf["data"]["n_src"], mask_act=conf["masknet"]["mask_act"], qat=qat, train_mode=True)
-    if pretrained != "":
+    model = ConvTasNetQ(n_src=conf["data"]["n_src"], mask_act=conf["masknet"]["mask_act"], qat=qat)
+    if pretrained is not None:
         model = get_asteroid_pytorch_model(model, pretrained)
     if qat:
         model.quantize_model()
@@ -154,12 +155,14 @@ def main(conf):
     with open(os.path.join(exp_dir, "best_k_models.json"), "w") as f:
         json.dump(best_k, f, indent=0)
 
+    # Save latest model
+    torch.save(system.model.state_dict(), os.path.join(exp_dir, "latest_model.pth"))
+
+    # Save best model
     state_dict = torch.load(checkpoint.best_model_path)
     system.load_state_dict(state_dict=state_dict["state_dict"])
     system.cpu()
-
-    torch.save(system.model, os.path.join(exp_dir, "best_model.pth"))
-
+    torch.save(system.model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
 
 if __name__ == "__main__":
     import yaml
