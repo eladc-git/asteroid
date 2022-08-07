@@ -16,12 +16,28 @@ from asteroid.engine.system import System
 from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
 
 
-def get_asteroid_pytorch_model(model, weights_path):
+def get_asteroid_pytorch_model(model, weights_path, splitter=False, combiner=False):
     model_state_dict = model.state_dict()
     model_state_dict_weights = torch.load(weights_path)
-    assert len(model_state_dict.keys())==len(model_state_dict_weights.keys()), "Error: mismatch models weights!"
     for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
-        model_state_dict[new_key] = model_state_dict_weights.get(key)
+        if splitter and new_key == "encoder.weight":
+            x = model_state_dict_weights.get(key)
+            y = x.repeat(1, 2, 1)/2
+            # Dup
+            model_state_dict[new_key] = y
+            # Dup Rand
+            #y[:,1:,:] = torch.rand_like(x)
+            #model_state_dict[new_key] = y
+            # Random
+            #model_state_dict[new_key] = torch.rand_like(y)
+            print("Splitter pretrained is on!")
+        elif combiner and new_key == "decoder.weight":
+            x = model_state_dict_weights.get(key)
+            y = x.repeat(1, 2, 1) / 2
+            model_state_dict[new_key] = y
+            print("Combiner pretrained is on!")
+        else:
+            model_state_dict[new_key] = model_state_dict_weights.get(key)
     model.load_state_dict(model_state_dict, strict=True)
     return model
 
@@ -33,8 +49,8 @@ def get_asteroid_pytorch_model(model, weights_path):
 # will limit the number of available GPUs for train.py .
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
-#PROJECT_NAME = "ConvTasNet_enh"
-PROJECT_NAME = "ConvTasNet_sep2"
+PROJECT_NAME = "ConvTasNet_enh"
+#PROJECT_NAME = "ConvTasNet_sep2"
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main(conf):
@@ -73,11 +89,16 @@ def main(conf):
     conf["masknet"].update({"n_src": conf["data"]["n_src"]})
 
     # ------ QAT model --------------
-    pretrained = conf["training"]["pretrained"]
+    pretrained = conf["training"].get("pretrained")
+    enc_num_ch = conf["filterbank"].get("enc_num_ch", 1)
+    dec_num_ch = conf["filterbank"].get("dec_num_ch", 1)
     qat = conf["training"]["qat"]
-    model = ConvTasNetQ(n_src=conf["data"]["n_src"], mask_act=conf["masknet"]["mask_act"], qat=qat)
+    model = ConvTasNetQ(n_src=conf["data"]["n_src"],
+                        enc_num_ch=enc_num_ch,
+                        dec_num_ch=dec_num_ch,
+                        qat=qat)
     if pretrained is not None:
-        model = get_asteroid_pytorch_model(model, pretrained)
+        model = get_asteroid_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
     if qat:
         model.quantize_model()
         model.to(DEVICE)
