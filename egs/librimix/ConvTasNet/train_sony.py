@@ -22,7 +22,7 @@ def get_asteroid_pytorch_model(model, weights_path, splitter=False, combiner=Fal
     for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
         if splitter and new_key == "encoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)/2
+            y = x.repeat(1, 2, 1) / 2
             # Dup
             model_state_dict[new_key] = y
             # Dup Rand
@@ -49,8 +49,8 @@ def get_asteroid_pytorch_model(model, weights_path, splitter=False, combiner=Fal
 # will limit the number of available GPUs for train.py .
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
-PROJECT_NAME = "ConvTasNet_enh"
-#PROJECT_NAME = "ConvTasNet_sep2"
+#PROJECT_NAME = "ConvTasNet_enh"
+PROJECT_NAME = "ConvTasNet_sep2"
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main(conf):

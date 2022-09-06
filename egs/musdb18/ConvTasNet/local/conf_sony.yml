@@ -1,0 +1,50 @@
+# filterbank config
+filterbank:
+  enc_num_ch: 1
+  dec_num_ch: 1
+  n_filters: 512
+  kernel_size: 32
+  stride: 16
+# Network config
+masknet:
+  n_blocks: 8
+  n_repeats: 3
+  mask_act: relu
+  bn_chan: 128
+  hid_chan: 512
+# Training config
+training:
+  epochs: 1000
+  batch_size: 2 #14
+  loss_combine_sources: yes
+  loss_use_multidomain: yes
+  mix_coef: 10.0
+  val_dur: 80.0
+  #pretrained: /data/projects/swat/users/eladco/models/audio/ConvTasNet/asteroid/ConvTasNet_Libri1Mix_enhsingle_16k.pth
+  wandb: False
+  qat: True
+# Optim config
+optim:
+  optimizer: adam
+  lr: 0.001
+  patience: 1000
+  lr_decay_patience: 80
+  lr_decay_gamma: 0.3
+  weight_decay: 0.00001
+# Data config
+data:
+  train_dir: ./data
+  output: convtasnet_outputs
+  sample_rate: 44100
+  num_workers: 4
+  seed: 42
+  seq_dur: 6.0
+  samples_per_track: 64
+  source_augmentations:
+    - gain
+    - channelswap
+  sources:
+    - bass
+    - drums
+    - vocals
+    - other
