@@ -16,24 +16,26 @@ from asteroid.engine.system import System
 from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
 
 
-def get_asteroid_pytorch_model(model, weights_path, splitter=False, combiner=False):
+def quantize(x, delta):
+    return torch.round(x / delta) * delta
+
+
+def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=False):
     model_state_dict = model.state_dict()
     model_state_dict_weights = torch.load(weights_path)
     for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
         if splitter and new_key == "encoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1) / 2
-            # Dup
+            y = x.repeat(1, 2, 1)
+            y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
             model_state_dict[new_key] = y
-            # Dup Rand
-            #y[:,1:,:] = torch.rand_like(x)
-            #model_state_dict[new_key] = y
-            # Random
-            #model_state_dict[new_key] = torch.rand_like(y)
             print("Splitter pretrained is on!")
         elif combiner and new_key == "decoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1) / 2
+            y = x.repeat(1, 2, 1)
+            n_bits, sign = 8, True
+            delta = 1 / (2 ** (n_bits - int(sign)))
+            y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
             model_state_dict[new_key] = y
             print("Combiner pretrained is on!")
         else:
@@ -49,8 +51,8 @@ def get_asteroid_pytorch_model(model, weights_path, splitter=False, combiner=Fal
 # will limit the number of available GPUs for train.py .
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
-#PROJECT_NAME = "ConvTasNet_enh"
-PROJECT_NAME = "ConvTasNet_sep2"
+PROJECT_NAME = "ConvTasNet_enh"
+#PROJECT_NAME = "ConvTasNet_sep2"
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main(conf):
@@ -89,16 +91,27 @@ def main(conf):
     conf["masknet"].update({"n_src": conf["data"]["n_src"]})
 
     # ------ QAT model --------------
-    pretrained = conf["training"].get("pretrained")
+    pretrained = conf["training"].get("pretrained", None)
     enc_num_ch = conf["filterbank"].get("enc_num_ch", 1)
     dec_num_ch = conf["filterbank"].get("dec_num_ch", 1)
     qat = conf["training"]["qat"]
+    KD = pretrained is not None and conf["training"].get("KD", False)
+    KD_factor = conf["training"].get("KD", 0.1)
+
     model = ConvTasNetQ(n_src=conf["data"]["n_src"],
                         enc_num_ch=enc_num_ch,
                         dec_num_ch=dec_num_ch,
                         qat=qat)
+
+    float_model = ConvTasNetQ(n_src=conf["data"]["n_src"], qat=False)
+
     if pretrained is not None:
-        model = get_asteroid_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
+        model = get_pretrain_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
+        if KD:
+            float_model = get_pretrain_pytorch_model(float_model, pretrained)
+            model.to(DEVICE)
+            model.eval()
+
     if qat:
         model.quantize_model()
         model.to(DEVICE)
@@ -128,20 +141,20 @@ def main(conf):
     loss_func = PITLossWrapper(pairwise_neg_sisdr, pit_from="pw_mtx")
     system = System(
         model=model,
+        float_model=float_model,
         loss_func=loss_func,
         optimizer=optimizer,
         train_loader=train_loader,
         val_loader=val_loader,
         scheduler=scheduler,
         config=conf,
+        kd_factor=KD_factor if KD else 0,
     )
 
     # Define callbacks
     callbacks = []
     checkpoint_dir = os.path.join(exp_dir, "checkpoints/")
-    checkpoint = ModelCheckpoint(
-        checkpoint_dir, monitor="val_loss", mode="min", save_top_k=5, verbose=True
-    )
+    checkpoint = ModelCheckpoint(checkpoint_dir, monitor="val_loss", mode="min", save_top_k=5, verbose=True)
     callbacks.append(checkpoint)
     if conf["training"]["early_stop"]:
         callbacks.append(EarlyStopping(monitor="val_loss", mode="min", patience=30, verbose=True))

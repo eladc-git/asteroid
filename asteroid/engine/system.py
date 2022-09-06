@@ -46,20 +46,24 @@ class System(pl.LightningModule):
     def __init__(
         self,
         model,
+        float_model,
         optimizer,
         loss_func,
         train_loader,
         val_loader=None,
         scheduler=None,
         config=None,
+        kd_factor=0,
     ):
         super().__init__()
         self.model = model
+        self.float_model = float_model
         self.optimizer = optimizer
         self.loss_func = loss_func
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.scheduler = scheduler
+        self.kd_factor = kd_factor
         self.config = {} if config is None else config
         # Save lightning's AttributeDict under self.hparams
         self.save_hyperparameters(self.config_to_hparams(self.config))
@@ -71,6 +75,16 @@ class System(pl.LightningModule):
             :class:`torch.Tensor`
         """
         return self.model(*args, **kwargs)
+
+
+    def float_forward(self, *args, **kwargs):
+        """Applies forward pass of the model.
+
+        Returns:
+            :class:`torch.Tensor`
+        """
+        return self.float_model(*args, **kwargs)
+
 
     def common_step(self, batch, batch_nb, train=True):
         """Common forward step between training and validation.
@@ -98,9 +112,20 @@ class System(pl.LightningModule):
             Otherwise, ``training_step`` and ``validation_step`` can be overwriten.
         """
         inputs, targets = batch
+
+        # Loss
         est_targets = self(inputs)
         loss = self.loss_func(est_targets, targets)
-        return loss
+
+        # Knowlege destilation loss
+        if self.kd_factor > 0:
+            with torch.no_grad():
+                est_float_targets = self.float_forward(inputs)
+            kd_loss = self.loss_func(est_targets, est_float_targets)
+        else:
+            kd_loss = 0
+
+        return (1-self.kd_factor)*loss + self.kd_factor*kd_loss
 
     def training_step(self, batch, batch_nb):
         """Pass data through the model and compute the loss.
