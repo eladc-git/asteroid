@@ -1,6 +1,6 @@
 # filterbank config
 filterbank:
-  enc_num_ch: 2
+  enc_num_ch: 1
   dec_num_ch: 2
   n_filters: 512
   kernel_size: 32
@@ -14,7 +14,7 @@ masknet:
   hid_chan: 512
 # Training config
 training:
-  epochs: 50
+  epochs: 40
   batch_size: 6
   num_workers: 4
   half_lr: true
@@ -23,12 +23,16 @@ training:
   pretrained:  /data/projects/swat/users/eladco/models/audio/ConvTasNet/asteroid/ConvTasNet_Libri1Mix_enhsingle_16k.pth
   wandb: True
   qat: True
-  KD: False
-  KD_factor: 0.1
+  kd_lambda: 0.1
+  weight_quant: True
+  act_quant: True
+  in_quant: False
+  out_quant: True
+  seed: 0
 # Optim config
 optim:
   optimizer: adam
-  lr: 0.0001
+  lr: 0.0005
   weight_decay: 0.0
 # Data config
 data:

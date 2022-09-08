@@ -53,7 +53,7 @@ class System(pl.LightningModule):
         val_loader=None,
         scheduler=None,
         config=None,
-        kd_factor=0,
+        kd_lambda=0,
     ):
         super().__init__()
         self.model = model
@@ -63,7 +63,8 @@ class System(pl.LightningModule):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.scheduler = scheduler
-        self.kd_factor = kd_factor
+        self.kd_lambda = kd_lambda
+        self.mse = torch.nn.MSELoss(reduction='sum')
         self.config = {} if config is None else config
         # Save lightning's AttributeDict under self.hparams
         self.save_hyperparameters(self.config_to_hparams(self.config))
@@ -117,15 +118,15 @@ class System(pl.LightningModule):
         est_targets = self(inputs)
         loss = self.loss_func(est_targets, targets)
 
-        # Knowlege destilation loss
-        if self.kd_factor > 0:
+        # Knowledge distillation loss
+        if self.kd_lambda > 0 and train:
             with torch.no_grad():
                 est_float_targets = self.float_forward(inputs)
             kd_loss = self.loss_func(est_targets, est_float_targets)
-        else:
-            kd_loss = 0
+            #kd_loss = self.mse(est_targets, est_float_targets)/(torch.norm(est_targets)**2)
+            return loss + self.kd_lambda * kd_loss
 
-        return (1-self.kd_factor)*loss + self.kd_factor*kd_loss
+        return loss
 
     def training_step(self, batch, batch_nb):
         """Pass data through the model and compute the loss.

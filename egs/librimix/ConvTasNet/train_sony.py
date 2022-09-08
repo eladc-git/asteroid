@@ -17,7 +17,7 @@ from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
 
 
 def quantize(x, delta):
-    return torch.round(x / delta) * delta
+    return torch.clip(torch.round(x / delta), -2**7, 2**7 - 1)*delta
 
 
 def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=False):
@@ -26,18 +26,18 @@ def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=Fal
     for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
         if splitter and new_key == "encoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)/2
-            #y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
+            y = x.repeat(1, 2, 1)
+            y[:, 1:, :] = torch.mean(x) + torch.std(x)*torch.randn_like(x) # gaussian
             model_state_dict[new_key] = y
-            print("Splitter pretrained is on!")
+            print("Splitter initialiation is done!")
         elif combiner and new_key == "decoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)/2
+            y = x.repeat(1, 2, 1)
             n_bits, sign = 8, True
             delta = 1 / (2 ** (n_bits - int(sign)))
-            #y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
+            y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
             model_state_dict[new_key] = y
-            print("Combiner pretrained is on!")
+            print("Combiner initialiation is done!")
         else:
             model_state_dict[new_key] = model_state_dict_weights.get(key)
     model.load_state_dict(model_state_dict, strict=True)
@@ -54,6 +54,9 @@ parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def main(conf):
+
+    seed = conf["training"].get("seed", 0)
+    torch.manual_seed(seed)
 
     train_set = LibriMix(
         csv_dir=conf["data"]["train_dir"],
@@ -93,8 +96,7 @@ def main(conf):
     enc_num_ch = conf["filterbank"].get("enc_num_ch", 1)
     dec_num_ch = conf["filterbank"].get("dec_num_ch", 1)
     qat = conf["training"]["qat"]
-    KD = pretrained is not None and conf["training"].get("KD", False)
-    KD_factor = conf["training"].get("KD", 0.1)
+    kd_lambda = conf["training"].get("kd_lambda", 0)
 
     model = ConvTasNetQ(n_src=conf["data"]["n_src"],
                         enc_num_ch=enc_num_ch,
@@ -104,13 +106,17 @@ def main(conf):
 
     if pretrained is not None:
         model = get_pretrain_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
-        if KD:
+        if kd_lambda > 0:
             float_model = get_pretrain_pytorch_model(float_model, pretrained)
             model.to(DEVICE)
             model.eval()
 
     if qat:
-        model.quantize_model()
+        weight_quant = conf["training"].get("weight_quant", True)
+        act_quant = conf["training"].get("act_quant", True)
+        in_quant = conf["training"].get("in_quant", False)
+        out_quant = conf["training"].get("out_quant", True)
+        model.quantize_model(qat_weight_quant=weight_quant, qat_act_quant=act_quant, in_quant=in_quant, out_quant=out_quant)
         model.to(DEVICE)
     # -------------------------------
 
@@ -146,7 +152,7 @@ def main(conf):
         val_loader=val_loader,
         scheduler=scheduler,
         config=conf,
-        kd_factor=KD_factor if KD else 0,
+        kd_lambda=kd_lambda,
     )
 
     # Define callbacks

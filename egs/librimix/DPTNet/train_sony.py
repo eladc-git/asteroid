@@ -27,16 +27,16 @@ def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=Fal
     for new_key, key in zip(model_state_dict.keys(), model_state_dict_weights.keys()):
         if splitter and new_key == "encoder.0.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1) / 2
-            # y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
+            y = x.repeat(1, 2, 1)
+            y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
             model_state_dict[new_key] = y
             print("Splitter pretrained is on!")
         elif combiner and new_key == "decoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1) / 2
+            y = x.repeat(1, 2, 1)
             n_bits, sign = 8, True
             delta = 1 / (2 ** (n_bits - int(sign)))
-            # y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
+            y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
             model_state_dict[new_key] = y
             print("Combiner pretrained is on!")
         else:
@@ -132,7 +132,7 @@ def main(conf):
     if conf["training"]["wandb"]:
         print("WandB is enable!")
         test_name = exp_dir.split('/')[-1]
-        PROJECT_NAME = "DPTNet_" + conf["data"]["task"]
+        PROJECT_NAME = conf["model"]+'_'+conf["data"]["task"]
         wandb.init(project=PROJECT_NAME, name=test_name, dir=exp_dir)
         wandb.finish()
         wandbLogger = WandbLogger(project=PROJECT_NAME, name=test_name, log_model='all')
