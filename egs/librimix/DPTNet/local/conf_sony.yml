@@ -1,8 +1,7 @@
-model: DPTNet
 # Filterbank config
 filterbank:
-  enc_num_ch: 2
-  dec_num_ch: 2
+  enc_num_ch: 1
+  dec_num_ch: 1
   n_filters: 64
   kernel_size: 16
   stride: 8
@@ -21,7 +20,7 @@ masknet:
   dropout: 0
 # Training config
 training:
-  epochs: 50
+  epochs: 60
   batch_size: 4
   num_workers: 4
   half_lr: yes
@@ -30,13 +29,17 @@ training:
   pretrained: /data/projects/swat/users/eladco/models/audio/DPTNet/asteroid/DPTNet_Libri1Mix_enhsignle_16k.pth
   wandb: True
   qat: True
-  KD: False
-  KD_factor: 0.1
+  kd_lambda: 0.0
+  weight_quant: True
+  act_quant: True
+  in_quant: False
+  out_quant: False
+  seed: 0
 # Optim config
 optim:
   optimizer: adam
-  lr: 0.0001
-  weight_decay: 1.0e-5
+  lr: 0.001
+  weight_decay: 0.0
 scheduler:
   steps_per_epoch: 10000
   d_model: 64

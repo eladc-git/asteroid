@@ -51,12 +51,13 @@ def main(conf):
     model_path = os.path.join(conf["exp_dir"], "best_model.pth")
 
     # ------ QAT model --------------
+    model = ConvTasNetQ(n_src=conf["train_conf"]["data"]["n_src"], mask_act=conf["train_conf"]["masknet"]["mask_act"])
     qat = conf["train_conf"]["training"]["qat"]
-    model = ConvTasNetQ(n_src=conf["train_conf"]["data"]["n_src"], mask_act=conf["train_conf"]["masknet"]["mask_act"], qat=qat, unsqueeze_input=True)
-    model.quantize_model()
-    model_state_dict_weights = torch.load(model_path)
-    model.load_state_dict(model_state_dict_weights, strict=True)
-    enable_observer(model, False)
+    if qat:
+        model.quantize_model()
+        model_state_dict_weights = torch.load(model_path)
+        model.load_state_dict(model_state_dict_weights, strict=True)
+        enable_observer(model, False)
     # -------------------------------
 
     # Handle device placement

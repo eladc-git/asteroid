@@ -64,7 +64,9 @@ class System(pl.LightningModule):
         self.val_loader = val_loader
         self.scheduler = scheduler
         self.kd_lambda = kd_lambda
-        self.mse = torch.nn.MSELoss(reduction='sum')
+        self.delta = 1/(2**7) # = t/delta(n,t)
+        self.min = -2**7
+        self.max = 2**7 - 1
         self.config = {} if config is None else config
         # Save lightning's AttributeDict under self.hparams
         self.save_hyperparameters(self.config_to_hparams(self.config))
@@ -86,6 +88,12 @@ class System(pl.LightningModule):
         """
         return self.float_model(*args, **kwargs)
 
+    def kd_loss_func(self, y, x, EPS=1e-8):
+        x_split = torch.split(x, 1, dim=1)
+        s = ((y - x_split[0])/(0.5 * self.delta)).detach()
+        norm = torch.norm((x_split[1] - s) / torch.norm(s))
+        loss = 10 * torch.log10(norm + EPS)
+        return loss
 
     def common_step(self, batch, batch_nb, train=True):
         """Common forward step between training and validation.
@@ -121,9 +129,8 @@ class System(pl.LightningModule):
         # Knowledge distillation loss
         if self.kd_lambda > 0 and train:
             with torch.no_grad():
-                est_float_targets = self.float_forward(inputs)
-            kd_loss = self.loss_func(est_targets, est_float_targets)
-            #kd_loss = self.mse(est_targets, est_float_targets)/(torch.norm(est_targets)**2)
+                est_targets_float = self.float_model(inputs)
+            kd_loss = self.loss_func(est_targets, est_targets_float)
             return loss + self.kd_lambda * kd_loss
 
         return loss

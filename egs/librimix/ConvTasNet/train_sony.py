@@ -10,38 +10,12 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
 from models.convtasnetq import ConvTasNetQ
+from models.convtasnetqv2 import ConvTasNetQv2
 from asteroid.data import LibriMix
 from asteroid.engine.optimizers import make_optimizer
 from asteroid.engine.system import System
 from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
 
-
-def quantize(x, delta):
-    return torch.clip(torch.round(x / delta), -2**7, 2**7 - 1)*delta
-
-
-def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=False):
-    model_state_dict = model.state_dict()
-    model_state_dict_weights = torch.load(weights_path)
-    for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
-        if splitter and new_key == "encoder.weight":
-            x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)
-            y[:, 1:, :] = torch.mean(x) + torch.std(x)*torch.randn_like(x) # gaussian
-            model_state_dict[new_key] = y
-            print("Splitter initialiation is done!")
-        elif combiner and new_key == "decoder.weight":
-            x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)
-            n_bits, sign = 8, True
-            delta = 1 / (2 ** (n_bits - int(sign)))
-            y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
-            model_state_dict[new_key] = y
-            print("Combiner initialiation is done!")
-        else:
-            model_state_dict[new_key] = model_state_dict_weights.get(key)
-    model.load_state_dict(model_state_dict, strict=True)
-    return model
 
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
@@ -53,8 +27,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def main(conf):
 
+def main(conf):
     seed = conf["training"].get("seed", 0)
     torch.manual_seed(seed)
 
@@ -95,19 +69,20 @@ def main(conf):
     pretrained = conf["training"].get("pretrained", None)
     enc_num_ch = conf["filterbank"].get("enc_num_ch", 1)
     dec_num_ch = conf["filterbank"].get("dec_num_ch", 1)
+    n_src = conf["data"]["n_src"]
     qat = conf["training"]["qat"]
     kd_lambda = conf["training"].get("kd_lambda", 0)
 
-    model = ConvTasNetQ(n_src=conf["data"]["n_src"],
+    model = ConvTasNetQ(n_src=n_src,
                         enc_num_ch=enc_num_ch,
                         dec_num_ch=dec_num_ch)
 
-    float_model = ConvTasNetQ(n_src=conf["data"]["n_src"])
+    float_model = ConvTasNetQ(n_src=n_src)
 
     if pretrained is not None:
-        model = get_pretrain_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
+        model.load_pretrain(pretrained, splitter=enc_num_ch > 1, combiner=dec_num_ch>1)
         if kd_lambda > 0:
-            float_model = get_pretrain_pytorch_model(float_model, pretrained)
+            float_model = float_model.load_pretrain(pretrained)
             model.to(DEVICE)
             model.eval()
 
@@ -116,7 +91,10 @@ def main(conf):
         act_quant = conf["training"].get("act_quant", True)
         in_quant = conf["training"].get("in_quant", False)
         out_quant = conf["training"].get("out_quant", True)
-        model.quantize_model(qat_weight_quant=weight_quant, qat_act_quant=act_quant, in_quant=in_quant, out_quant=out_quant)
+        model.quantize_model(qat_weight_quant=weight_quant,
+                             qat_act_quant=act_quant,
+                             in_quant=in_quant,
+                             out_quant=out_quant)
         model.to(DEVICE)
     # -------------------------------
 
@@ -136,7 +114,7 @@ def main(conf):
     if conf["training"]["wandb"]:
         print("WandB is enable!")
         test_name = exp_dir.split('/')[-1]
-        PROJECT_NAME = "ConvTasNet_"+conf["data"]["task"]
+        PROJECT_NAME = "ConvTasNet_" + conf["data"]["task"]
         wandb.init(project=PROJECT_NAME, name=test_name, dir=exp_dir)
         wandb.finish()
         wandbLogger = WandbLogger(project=PROJECT_NAME, name=test_name, log_model='all')
@@ -201,6 +179,7 @@ def main(conf):
     system.load_state_dict(state_dict=state_dict["state_dict"])
     system.cpu()
     torch.save(system.model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
+
 
 if __name__ == "__main__":
     import yaml
