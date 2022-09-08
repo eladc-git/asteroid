@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-from models.convtasnetq import ConvTasNetQ
+from models.dptnetq import DPTNetQ
 from asteroid.data import LibriMix
 from asteroid.engine.optimizers import make_optimizer
 from asteroid.engine.system import System
@@ -23,25 +23,27 @@ def quantize(x, delta):
 def get_pretrain_pytorch_model(model, weights_path, splitter=False, combiner=False):
     model_state_dict = model.state_dict()
     model_state_dict_weights = torch.load(weights_path)
-    for new_key,key in zip(model_state_dict.keys(),model_state_dict_weights.keys()):
-        if splitter and new_key == "encoder.weight":
+    model_state_dict_weights = model_state_dict_weights.get('state_dict', model_state_dict_weights)
+    for new_key, key in zip(model_state_dict.keys(), model_state_dict_weights.keys()):
+        if splitter and new_key == "encoder.0.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)/2
-            #y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
+            y = x.repeat(1, 2, 1) / 2
+            # y[:, 1:, :] = torch.mean(x, dim=2, keepdim=True) + torch.std(x, dim=2, keepdim=True)*torch.randn_like(x) # gaussian
             model_state_dict[new_key] = y
             print("Splitter pretrained is on!")
         elif combiner and new_key == "decoder.weight":
             x = model_state_dict_weights.get(key)
-            y = x.repeat(1, 2, 1)/2
+            y = x.repeat(1, 2, 1) / 2
             n_bits, sign = 8, True
             delta = 1 / (2 ** (n_bits - int(sign)))
-            #y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
+            # y[:, 1:, :] = (x-quantize(x, delta))/(0.5*delta) # Quantization error
             model_state_dict[new_key] = y
             print("Combiner pretrained is on!")
         else:
             model_state_dict[new_key] = model_state_dict_weights.get(key)
     model.load_state_dict(model_state_dict, strict=True)
     return model
+
 
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
@@ -53,8 +55,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def main(conf):
 
+def main(conf):
     train_set = LibriMix(
         csv_dir=conf["data"]["train_dir"],
         task=conf["data"]["task"],
@@ -96,14 +98,14 @@ def main(conf):
     KD = pretrained is not None and conf["training"].get("KD", False)
     KD_factor = conf["training"].get("KD", 0.1)
 
-    model = ConvTasNetQ(n_src=conf["data"]["n_src"],
-                        enc_num_ch=enc_num_ch,
-                        dec_num_ch=dec_num_ch)
+    model = DPTNetQ(n_src=conf["data"]["n_src"],
+                    enc_num_ch=enc_num_ch,
+                    dec_num_ch=dec_num_ch)
 
-    float_model = ConvTasNetQ(n_src=conf["data"]["n_src"])
+    float_model = DPTNetQ(n_src=conf["data"]["n_src"])
 
     if pretrained is not None:
-        model = get_pretrain_pytorch_model(model, pretrained, splitter=enc_num_ch>1, combiner=dec_num_ch>1)
+        model = get_pretrain_pytorch_model(model, pretrained, splitter=enc_num_ch > 1, combiner=dec_num_ch > 1)
         if KD:
             float_model = get_pretrain_pytorch_model(float_model, pretrained)
             model.to(DEVICE)
@@ -130,7 +132,7 @@ def main(conf):
     if conf["training"]["wandb"]:
         print("WandB is enable!")
         test_name = exp_dir.split('/')[-1]
-        PROJECT_NAME = "ConvTasNet_"+conf["data"]["task"]
+        PROJECT_NAME = "DPTNet_" + conf["data"]["task"]
         wandb.init(project=PROJECT_NAME, name=test_name, dir=exp_dir)
         wandb.finish()
         wandbLogger = WandbLogger(project=PROJECT_NAME, name=test_name, log_model='all')
@@ -195,6 +197,7 @@ def main(conf):
     system.load_state_dict(state_dict=state_dict["state_dict"])
     system.cpu()
     torch.save(system.model.state_dict(), os.path.join(exp_dir, "best_model.pth"))
+
 
 if __name__ == "__main__":
     import yaml
